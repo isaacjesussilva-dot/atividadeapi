@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -6,11 +7,17 @@ const authRoutes = require('./routes/authRoutes');
 const produtoRoutes = require('./routes/produtoRoutes');
 
 const app = express();
+const DIRETORIO_SITE = path.join(__dirname, '..', 'site');
 
 app.use(cors());
 app.use(express.json());
 
-app.get('/', (req, res) => {
+// O site fica na pasta "site" e é servido na raiz do projeto.
+// A API continua disponível em /produto, /cliente e /login.
+app.use(express.static(DIRETORIO_SITE));
+app.use('/site', express.static(DIRETORIO_SITE));
+
+app.get('/api', (req, res) => {
   res.json({
     mensagem: 'API de clientes e produtos com autenticação JWT.',
     rotas: [
@@ -18,6 +25,7 @@ app.get('/', (req, res) => {
       'POST /login',
       'GET /cliente/perfil (requer Bearer token)',
       'GET /produto',
+      'GET /produto/filtros',
       'POST /produto (requer Bearer token)',
     ],
   });

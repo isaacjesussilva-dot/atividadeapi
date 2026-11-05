@@ -35,22 +35,8 @@ function converterPagina(valor) {
   return pagina;
 }
 
-function montarOrdenacao(valor) {
-  const ordem = String(valor || '').trim().toLowerCase();
-
-  if (['asc', 'menor', 'menor_preco', 'preco_asc'].includes(ordem)) {
-    return 'ORDER BY preco ASC, id ASC';
-  }
-
-  if (['desc', 'maior', 'maior_preco', 'preco_desc'].includes(ordem)) {
-    return 'ORDER BY preco DESC, id ASC';
-  }
-
-  return 'ORDER BY id ASC';
-}
-
 async function listarProdutos(req, res) {
-  const { nome, categoria, preco_min, preco_max, pagina, ordenar, ordem } = req.query;
+  const { nome, categoria, preco_min, preco_max, ordenar, pagina } = req.query;
 
   const condicoes = [];
   const parametros = [];
@@ -61,7 +47,7 @@ async function listarProdutos(req, res) {
   }
 
   if (typeof categoria === 'string' && categoria.trim()) {
-    condicoes.push('LOWER(categoria) = ?');
+    condicoes.push('categoria = ?');
     parametros.push(categoria.trim().toLowerCase());
   }
 
@@ -85,7 +71,13 @@ async function listarProdutos(req, res) {
   const numeroPagina = converterPagina(pagina);
   const offset = (numeroPagina - 1) * LIMITE_POR_PAGINA;
   const where = condicoes.length > 0 ? `WHERE ${condicoes.join(' AND ')}` : '';
-  const ordenacao = montarOrdenacao(ordenar ?? ordem);
+
+  let ordenacao = 'ORDER BY id ASC';
+  if (ordenar === 'menor_preco') {
+    ordenacao = 'ORDER BY preco ASC, id ASC';
+  } else if (ordenar === 'maior_preco') {
+    ordenacao = 'ORDER BY preco DESC, id ASC';
+  }
 
   const [contagem] = await pool.execute(
     `SELECT COUNT(*) AS total FROM produtos ${where}`,
@@ -120,12 +112,37 @@ async function listarProdutos(req, res) {
       categoria: typeof categoria === 'string' && categoria.trim() ? categoria.trim().toLowerCase() : null,
       preco_min: precoMinimo,
       preco_max: precoMaximo,
-      ordenar: ordenacao === 'ORDER BY preco ASC, id ASC'
-        ? 'menor_preco'
-        : ordenacao === 'ORDER BY preco DESC, id ASC'
-          ? 'maior_preco'
-          : null,
+      ordenar: ordenar === 'menor_preco' || ordenar === 'maior_preco' ? ordenar : null,
     },
+  });
+}
+
+// Retorna as categorias e a faixa de preço para montar o filtro do site.
+async function listarFiltros(req, res) {
+  const [categorias] = await pool.query(
+    `SELECT categoria, COUNT(*) AS total
+       FROM produtos
+      GROUP BY categoria
+      ORDER BY categoria ASC`
+  );
+
+  const [resumo] = await pool.query(
+    `SELECT COUNT(*) AS total,
+            COALESCE(MIN(preco), 0) AS preco_min,
+            COALESCE(MAX(preco), 0) AS preco_max
+       FROM produtos`
+  );
+
+  return res.json({
+    categorias: categorias.map((item) => ({
+      nome: item.categoria,
+      total: Number(item.total),
+    })),
+    faixa_preco: {
+      min: Number(resumo[0].preco_min),
+      max: Number(resumo[0].preco_max),
+    },
+    total: Number(resumo[0].total),
   });
 }
 
@@ -148,7 +165,9 @@ async function criarProduto(req, res) {
   const estoqueNumerico = estoque === undefined ? 0 : Number(estoque);
 
   if (!Number.isInteger(estoqueNumerico) || estoqueNumerico < 0) {
-    return res.status(400).json({ erro: 'O estoque deve ser um número inteiro maior ou igual a zero.' });
+    return res.status(400).json({
+      erro: 'O estoque deve ser um número inteiro maior ou igual a zero.',
+    });
   }
 
   const [resultado] = await pool.execute(
@@ -173,4 +192,9 @@ async function criarProduto(req, res) {
   });
 }
 
-module.exports = { listarProdutos, criarProduto, LIMITE_POR_PAGINA };
+module.exports = {
+  listarProdutos,
+  listarFiltros,
+  criarProduto,
+  LIMITE_POR_PAGINA,
+};
